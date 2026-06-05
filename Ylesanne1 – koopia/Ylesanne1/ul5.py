@@ -9,7 +9,7 @@ pygame.display.set_caption("ul5")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("Courier New", 22, bold=True)
 
-# --- Pildid (ball.png ja pad.png peavad olema samas kaustas!) ---
+# --- Pildid ---
 ball_img = pygame.transform.scale(pygame.image.load("ball.png"), (20, 20))
 pad_img  = pygame.transform.scale(pygame.image.load("pad.png"),  (120, 20))
 
@@ -50,12 +50,11 @@ while True:
     if ball_y - BALL_SIZE/2 <= 0:
         ball_y = BALL_SIZE/2;  ball_sy = abs(ball_sy)
 
-    # Pall kukub alla → -1 punkt
+    # Pall kukub alla → -1 punkt + põrge põhjast
     if ball_y + BALL_SIZE/2 >= H:
+        ball_y = H - BALL_SIZE/2
+        ball_sy = -abs(ball_sy)
         score -= 1
-        ball_x, ball_y = float(W // 2), float(H // 4)
-        ball_sx = 3.5 if score % 2 == 0 else -3.5
-        ball_sy = 3.5
 
     # Kokkupõrge alusega → +1 punkt
     if (ball_sy > 0 and
