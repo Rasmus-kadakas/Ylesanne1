@@ -1,4 +1,3 @@
-
 import pygame
 import random
 import sys
@@ -14,7 +13,7 @@ RAJAD = [195, 320, 445]
 
 AUTO_LAIUS = 45
 AUTO_KORGUS = 90
-MIN_VAHE = AUTO_KORGUS + 30  # minimaalne vahemaa sama raja autode vahel
+MIN_VAHE = AUTO_KORGUS + 30
 
 # --- Initsialiseerimine ---
 pygame.init()
@@ -32,12 +31,13 @@ punane_pilt = pygame.transform.scale(punane_pilt, (AUTO_LAIUS, AUTO_KORGUS))
 
 sinine_pilt = pygame.image.load("f1_blue.png").convert_alpha()
 sinine_pilt = pygame.transform.scale(sinine_pilt, (AUTO_LAIUS, AUTO_KORGUS))
+sinine_pilt = pygame.transform.rotate(sinine_pilt, 180)
 
 # --- Mängija punane auto ---
 mang_raja_nr = 1  # 0=vasak, 1=kesk, 2=parem
 mang_x = float(RAJAD[mang_raja_nr] - AUTO_LAIUS // 2)
 mang_siht_x = mang_x
-mang_y = KORGUS - AUTO_KORGUS - 20
+mang_y = KORGUS - AUTO_KORGUS - 3
 LIBISEMIS_KIIRUS = 8
 
 # --- Sinised autod ---
@@ -49,13 +49,12 @@ class SinineAuto:
         self.kiirus = random.uniform(2.0, 4.0)
 
     def uuenda(self):
-        self.y += self.kiirus
+        self.y += self.kiirus  # liigub alla
 
     def on_alla_joudnud(self):
         return self.y > KORGUS
 
     def reset(self, teised_autod):
-        # Proovi kuni leiad turvalise koha
         for _ in range(50):
             raja = random.randint(0, 2)
             uus_y = float(random.randint(-400, -AUTO_KORGUS - 20))
@@ -73,7 +72,6 @@ class SinineAuto:
                 self.y = uus_y
                 self.kiirus = random.uniform(2.0, 4.0)
                 return
-        # Varuvariant: pane kaugele üles
         self.raja_nr = random.randint(0, 2)
         self.x = RAJAD[self.raja_nr] - AUTO_LAIUS // 2
         self.y = float(-600)
@@ -84,7 +82,6 @@ class SinineAuto:
 
 
 def taga_vahemaad(autod):
-    """Lükka sama raja autod lahku kui liiga lähedal."""
     for i in range(len(autod)):
         for j in range(len(autod)):
             if i == j:
@@ -97,9 +94,9 @@ def taga_vahemaad(autod):
                 a.y = b.y - MIN_VAHE
 
 
-# Loo 4 sinist autot — igaüks erineval rajal ja kõrgusel
+# Loo 4 sinist autot
 sinised_autod = []
-for i in range(4):
+for i in range(2):
     raja = i % 3
     algus_y = -AUTO_KORGUS - i * 160
     sinised_autod.append(SinineAuto(raja, algus_y))
@@ -145,13 +142,12 @@ while True:
                 mangib = True
 
     if mangib:
-        # Libista punane auto sihtkohta
         if mang_x < mang_siht_x:
             mang_x = min(mang_x + LIBISEMIS_KIIRUS, mang_siht_x)
         elif mang_x > mang_siht_x:
             mang_x = max(mang_x - LIBISEMIS_KIIRUS, mang_siht_x)
 
-        taust_nihe = (taust_nihe + 4) % KORGUS
+        taust_nihe = (taust_nihe - 4) % KORGUS
 
         mang_rect = pygame.Rect(int(mang_x), mang_y, AUTO_LAIUS, AUTO_KORGUS)
 
@@ -163,12 +159,11 @@ while True:
             if mang_rect.colliderect(auto.rect()):
                 mangib = False
 
-        # Taga et autod ei kattu üksteisega
         taga_vahemaad(sinised_autod)
 
     # --- Joonistamine ---
-    aken.blit(taust_pilt, (0, taust_nihe - KORGUS))
     aken.blit(taust_pilt, (0, taust_nihe))
+    aken.blit(taust_pilt, (0, taust_nihe - KORGUS))
 
     for auto in sinised_autod:
         aken.blit(sinine_pilt, (int(auto.x), int(auto.y)))
@@ -190,3 +185,4 @@ while True:
         aken.blit(restart_tekst, (LAIUS//2 - restart_tekst.get_width()//2, 245))
 
     pygame.display.flip()
+
