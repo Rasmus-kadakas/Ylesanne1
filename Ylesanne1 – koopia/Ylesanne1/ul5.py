@@ -13,6 +13,9 @@ font = pygame.font.SysFont("Courier New", 22, bold=True)
 ball_img = pygame.transform.scale(pygame.image.load("ball.png"), (20, 20))
 pad_img  = pygame.transform.scale(pygame.image.load("pad.png"),  (120, 20))
 
+# --- Taustavärv (muuda siit!) ---
+BG_COLOR = (168, 216, 234)
+
 # --- Mängu olek ---
 score = 0
 BALL_SIZE = 20
@@ -68,7 +71,7 @@ while True:
         score += 1
 
     # --- Joonistamine ---
-    screen.fill((168, 216, 234))
+    screen.fill(BG_COLOR)
 
     txt = font.render(f"SKOOR: {score}", True, (26, 58, 92))
     screen.blit(txt, (12, 10))
