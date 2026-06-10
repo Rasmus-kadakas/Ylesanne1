@@ -1,777 +1,586 @@
+"""
+Snake Kombaineeritud – PyCharm / pygame versioon
+Klassikaline Snake + Slither.io + Worms
 
-import pygame  # Mängu põhimoodul
-import random  # Juhuslike arvude genereerimiseks
-import sys  # Süsteemifunktsioonid
-import json  # Rekordite salvestamiseks
-import os  # Failisüsteemi operatsioonid
+Juhtnupud:
+  Nooleklahvid / WASD  – liikumine
+  SPACE                – kiirenda (kulutab energiat)
+  F                    – tulista valitud relv
+  1 / 2 / 3 / 4        – vali relv
+  ENTER                – alusta / restart
+  ESC                  – välju
+"""
 
-# ─── PYGAME INITSIALISEERIMINE ─────────────────────────────────────────────────
+import pygame
+import random
+import math
+import sys
+
 pygame.init()
-pygame.mixer.init()  # Helimootoril initsialiseerimine
 
-# ─── AKNA SEADED ──────────────────────────────────────────────────────────────
-AKNA_LAIUS = 800  # Mänguakna laius pikslites
-AKNA_KORGUS = 650  # Mänguakna kõrgus pikslites
-MÄNGUALA_ÜLEMINE = 60  # Infopaneeli kõrgus ülaosas
+# ── konstanded ──────────────────────────────────────────────────────────────
+CELL = 22
+COLS = 36
+ROWS = 24
+INFO_H = 90
+W = COLS * CELL
+H = ROWS * CELL
+FPS = 60
 
-# ─── RUUDUSTIKU SEADED ────────────────────────────────────────────────────────
-PLOKI_SUURUS = 20  # Ühe mänguruudu suurus pikslites
-VEERUD = AKNA_LAIUS // PLOKI_SUURUS  # Ruudustiku veergude arv
-READ = (AKNA_KORGUS - MÄNGUALA_ÜLEMINE) // PLOKI_SUURUS  # Ruudustiku ridade arv
+# värvid
+BG       = (10,  22,  40)
+GRID     = (255, 255, 255,  8)
+HEAD_COL = (74,  222, 128)
+FOOD_COL = (34,  197,  94)
+FOOD_HI  = (134, 239, 172)
+ENERGY_C = (250, 204,  21)
+WEAPON_C = (168,  85, 247)
+TRAP_C   = ( 59, 130, 246)
+UI_BG    = ( 20,  36,  60)
+TEXT_C   = (200, 210, 230)
+TEXT_DIM = (100, 120, 150)
+WHITE    = (255, 255, 255)
+RED      = (220,  50,  50)
+ORANGE   = (251, 146,  60)
+YELLOW   = (250, 204,  21)
+PURPLE   = (168,  85, 247)
+CYAN     = ( 34, 211, 238)
 
-# ─── VÄRVID (hele teema) ──────────────────────────────────────────────────────
-HELE_TAUST = (240, 248, 240)  # Hele roheline taustavärv
-HELE_RUUDUSTIK = (220, 235, 220)  # Ruudustiku joonte värv
-HELE_PANEELI_TAUST = (50, 120, 50)  # Infopaneeli taustavärv
-HELE_TEKST = (255, 255, 255)  # Paneeli teksti värv
-HELE_SKOOR_TEKST = (30, 30, 30)  # Skoori teksti värv mänguväljal
+ENEMY_COLORS = [
+    (239,  68,  68), (234, 179,   8), ( 16, 185, 129),
+    ( 99, 102, 241), (236,  72, 153), ( 20, 184, 166),
+]
 
-# ─── VÄRVID (tume teema) ──────────────────────────────────────────────────────
-TUME_TAUST = (15, 20, 15)  # Tume taustavärv
-TUME_RUUDUSTIK = (25, 35, 25)  # Tume ruudustiku joonte värv
-TUME_PANEELI_TAUST = (10, 40, 10)  # Tume infopaneeli värv
-TUME_TEKST = (100, 255, 100)  # Neon-roheline tekst tumedas teemas
-TUME_SKOOR_TEKST = (180, 255, 180)  # Hele skoori tekst tumedas teemas
+# relvanimed + kirjeldused
+WEAPONS = [
+    {"name": "Tavalõks",  "color": TRAP_C,   "key": "1"},
+    {"name": "Pomm",      "color": RED,       "key": "2"},
+    {"name": "Välk",      "color": YELLOW,    "key": "3"},
+    {"name": "Magnet",    "color": PURPLE,    "key": "4"},
+]
+INIT_AMMO = [999, 3, 2, 1]
 
-# ─── USSI VÄRVID ──────────────────────────────────────────────────────────────
-USSI_PEA_VÄRV = (34, 180, 34)  # Ussi pea värv (heleroheline)
-USSI_KEHA_VÄRV = (50, 205, 50)  # Ussi keha värv
-USSI_SILM_VÄRV = (255, 255, 255)  # Ussi silma valge osa
-USSI_PUPILL_VÄRV = (0, 0, 0)  # Ussi pupilli värv
+# ── abifunktsioonid ──────────────────────────────────────────────────────────
+def rnd(n): return random.randint(0, n - 1)
 
-# ─── TOIDU VÄRVID ─────────────────────────────────────────────────────────────
-PUNANE_ÕUN = (220, 50, 50)  # Tavaline punane õun (+1 punkt)
-ROHELINE_ÕUN = (50, 220, 50)  # Kiiruse boonus õun (+2 punkti + kiirus)
-KULDNE_ÕUN = (255, 215, 0)  # Kuldne õun (+5 punkti, haruldane)
+def glow(surf, x, y, r, col, alpha=80):
+    s = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
+    pygame.draw.circle(s, (*col[:3], alpha), (r, r), r)
+    surf.blit(s, (x - r, y - r))
 
-# ─── TAKISTUSTE VÄRVID ────────────────────────────────────────────────────────
-TAKISTUS_VÄRV = (100, 80, 60)  # Takistuse põhivärv (kivi/sein)
-TAKISTUS_ÄÄRIS = (70, 55, 40)  # Takistuse äärise värv
+def draw_rounded_rect(surf, rect, col, radius=6, border=0, border_col=None):
+    pygame.draw.rect(surf, col, rect, border_radius=radius)
+    if border and border_col:
+        pygame.draw.rect(surf, border_col, rect, border, border_radius=radius)
 
-# ─── MÄNGU KIIRUSED (kaadrit sekundis) ────────────────────────────────────────
-ALGKIIRUS = 8  # Algne mängu kiirus
-MAKSIMAALNE_KIIRUS = 20  # Maksimaalne kiirus tasemetel
-BOONUS_KIIRUS = 15  # Kiiruse boonus aktiveeritud olekus
-BOONUS_KESTUS = 150  # Kiiruse boonus kestus kaadrites (≈5 sek 30fps juures)
+# ── fontid ───────────────────────────────────────────────────────────────────
+F_LARGE  = pygame.font.SysFont("segoeui", 28, bold=True)
+F_MED    = pygame.font.SysFont("segoeui", 17)
+F_SMALL  = pygame.font.SysFont("segoeui", 14)
+F_TINY   = pygame.font.SysFont("segoeui", 12)
 
-# ─── TASEMETE SEADED ──────────────────────────────────────────────────────────
-PUNKTID_TASEME_KOHTA = 10  # Mitu punkti on vaja taseme tõstmiseks
-TAKISTUSTE_ARV_TASEMEL = 3  # Mitu uut takistust lisandub iga tasemega
+# ── mänguklass ───────────────────────────────────────────────────────────────
+class Game:
+    def __init__(self):
+        self.screen = pygame.display.set_mode((W, H + INFO_H))
+        pygame.display.set_caption("Snake Kombaineeritud")
+        self.clock = pygame.time.Clock()
+        self.state = "idle"   # idle | running | dead
+        self.snake = []; self.direction = (1,0); self.next_dir = (1,0)
+        self.score = 0; self.energy = 0; self.lives = 3; self.speed = 1.0
+        self.boost_t = 0; self.move_acc = 0.0; self.ammo = list(INIT_AMMO)
+        self.weapon = 0; self.items = []; self.enemies = []; self.explosions = []
+        self.zap_efx = []; self.mag_efx = []; self.traps = []; self.particles = []
+        self.msg = ""; self.msg_t = 0; self._spawn_timer = 0.0
 
-# ─── REKORDITE FAIL ───────────────────────────────────────────────────────────
-REKORDITE_FAIL = "rekordid.json"  # Fail kus rekordid salvestatakse
-MAX_REKORDEID = 5  # Mitu rekordit salvestatakse
+    # --- init -----------------------------------------------------------------
+    def reset(self):
+        self.snake      = [(8, ROWS//2), (7, ROWS//2), (6, ROWS//2)]
+        self.direction  = (1, 0)
+        self.next_dir   = (1, 0)
+        self.score      = 0
+        self.energy     = 0
+        self.lives      = 3
+        self.speed      = 1.0
+        self.boost_t    = 0
+        self.move_acc   = 0.0
+        self.ammo       = list(INIT_AMMO)
+        self.weapon     = 0
+        self.items      = []
+        self.enemies    = []
+        self.explosions = []
+        self.zap_efx    = []
+        self.mag_efx    = []
+        self.traps      = []
+        self.particles  = []
+        self.msg        = ""
+        self.msg_t      = 0
+        self._spawn_items(6)
+        self._spawn_enemies(3)
+        self.state = "running"
 
-# ─── FONT ─────────────────────────────────────────────────────────────────────
-PEAFONT = pygame.font.SysFont("monospace", 22, bold=True)  # Põhifont
-VÄIKEFONT = pygame.font.SysFont("monospace", 16)  # Väiksem font
-SUUREFONT = pygame.font.SysFont("monospace", 40, bold=True)  # Suur pealkiri font
-REKORDIFONT = pygame.font.SysFont("monospace", 18, bold=True)  # Rekordite font
+    # --- spawning -------------------------------------------------------------
+    def _free_cell(self):
+        occupied = set(self.snake)
+        for _ in range(200):
+            c = (rnd(COLS), rnd(ROWS))
+            if c not in occupied:
+                return c
+        return None
 
+    def _spawn_items(self, n):
+        for _ in range(n):
+            c = self._free_cell()
+            if c is None: continue
+            r = random.random()
+            t = "food" if r < 0.50 else ("energy" if r < 0.80 else "weapon")
+            self.items.append({"pos": c, "type": t, "phase": random.random() * math.pi * 2})
 
-def laadi_rekordid():
-    """
-    Laadib salvestatud rekordid JSON failist.
-    Kui faili pole, tagastab tühja nimekirja.
-    Tagastab: list rekordite sõnastikega {'nimi': str, 'skoor': int, 'tase': int}
-    """
-    if os.path.exists(REKORDITE_FAIL):
-        try:
-            with open(REKORDITE_FAIL, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # Kui fail on rikutud, alusta tühjalt
-            return []
-    return []
+    def _spawn_enemies(self, n):
+        for _ in range(n):
+            side = rnd(4)
+            if side == 0:   x, y, dx, dy = rnd(COLS), 0,        0,  1
+            elif side == 1: x, y, dx, dy = COLS-1,    rnd(ROWS), -1, 0
+            elif side == 2: x, y, dx, dy = rnd(COLS), ROWS-1,    0, -1
+            else:           x, y, dx, dy = 0,         rnd(ROWS),  1, 0
+            length = 3 + rnd(5)
+            spd    = 0.30 + random.random() * 0.35
+            col    = random.choice(ENEMY_COLORS)
+            self.enemies.append({
+                "body":  [(x, y)] * min(length, 3),
+                "dir":   (dx, dy),
+                "len":   length,
+                "spd":   spd,
+                "acc":   0.0,
+                "color": col,
+            })
 
+    # --- liikumine ------------------------------------------------------------
+    def _move_interval(self):
+        if self.boost_t > 0:
+            return 0.07
+        return max(0.10, 0.22 - self.speed * 0.025)
 
-def salvesta_rekord(nimi, skoor, tase):
-    """
-    Salvestab uue rekordi JSON faili.
-    Hoiab ainult TOP-5 tulemust, sorteeritult skoori järgi.
+    def _step(self):
+        self.direction = self.next_dir
+        hx = (self.snake[0][0] + self.direction[0]) % COLS
+        hy = (self.snake[0][1] + self.direction[1]) % ROWS
+        head = (hx, hy)
 
-    Parameetrid:
-        nimi (str): Mängija nimi
-        skoor (int): Lõplik punktisumma
-        tase (int): Lõplik tase kus mäng lõppes
-    """
-    rekordid = laadi_rekordid()
-    rekordid.append({"nimi": nimi, "skoor": skoor, "tase": tase})
-    # Sorteeri kahanevas järjekorras skoori alusel
-    rekordid.sort(key=lambda x: x["skoor"], reverse=True)
-    # Hoia ainult MAX_REKORDEID parimat tulemust
-    rekordid = rekordid[:MAX_REKORDEID]
-    try:
-        with open(REKORDITE_FAIL, "w", encoding="utf-8") as f:
-            json.dump(rekordid, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        print(f"Rekordite salvestamine ebaõnnestus: {e}")
+        if head in self.snake:
+            self._die(); return
 
+        # kontroll trap'idega
+        trap_hit = next((t for t in self.traps if t["pos"] == head), None)
+        if trap_hit:
+            self.traps.remove(trap_hit)
+            self._die(); return
 
-def genereeri_takistused(tase, uss_positsioonid, toit_positsioon):
-    """
-    Genereerib juhuslikud takistuste positsioonid vastavalt tasemele.
-    Takistused ei asetata ussi või toidu peale.
+        # kontroll vaenlastega
+        for e in self.enemies:
+            if head in e["body"]:
+                self._die(); return
 
-    Parameetrid:
-        tase (int): Praegune mängutase
-        uss_positsioonid (list): Ussi positsioonide nimekiri
-        toit_positsioon (tuple): Toidu praegune positsioon
+        self.snake.insert(0, head)
+        grew = False
 
-    Tagastab: set - takistuste positsioonide hulk
-    """
-    takistused = set()
-    # Takistuste arv kasvab tasemega
-    arv = tase * TAKISTUSTE_ARV_TASEMEL
+        # eset koristada
+        hit = next((it for it in self.items if it["pos"] == head), None)
+        if hit:
+            self.items.remove(hit)
+            if hit["type"] == "food":
+                self.score += 10
+                self.speed  = min(5.0, 1.0 + len(self.snake) * 0.05)
+                grew = True
+                self._particles(head, FOOD_COL, 12)
+            elif hit["type"] == "energy":
+                self.energy = min(100, self.energy + 20)
+                self.score  += 5
+                self._particles(head, ENERGY_C, 8)
+            elif hit["type"] == "weapon":
+                wi = rnd(3) + 1
+                self.ammo[wi] += 1
+                self.score += 5
+                self._particles(head, WEAPON_C, 8)
+                self._show_msg(f"+1 {WEAPONS[wi]['name']}")
 
-    keelatud = set(uss_positsioonid)  # Ussi ruudud on keelatud
-    keelatud.add(toit_positsioon)  # Toidu ruut on keelatud
+        if not grew:
+            self.snake.pop()
 
-    katseid = 0
-    while len(takistused) < arv and katseid < 1000:
-        katseid += 1
-        # Genereeri juhusliku positsiooni
-        x = random.randrange(0, VEERUD) * PLOKI_SUURUS
-        y = random.randrange(0, READ) * PLOKI_SUURUS + MÄNGUALA_ÜLEMINE
-        pos = (x, y)
+        if self.boost_t > 0:
+            self.boost_t -= 1
 
-        if pos not in keelatud and pos not in takistused:
-            takistused.add(pos)
+        if len(self.items) < 5:
+            self._spawn_items(2)
 
-    return takistused
+    def _move_enemies(self):
+        for e in self.enemies:
+            e["acc"] += e["spd"]
+            if e["acc"] < 1.0: continue
+            e["acc"] = 0.0
+            if random.random() < 0.12:
+                opts = [(1,0),(-1,0),(0,1),(0,-1)]
+                e["dir"] = random.choice(opts)
+            dx, dy = e["dir"]
+            nx = (e["body"][0][0] + dx) % COLS
+            ny = (e["body"][0][1] + dy) % ROWS
+            e["body"].insert(0, (nx, ny))
+            if len(e["body"]) > e["len"]:
+                e["body"].pop()
+            if e["body"][0] in self.snake:
+                self._die()
 
-
-def juhuslik_toit_positsioon(uss, takistused):
-    """
-    Leiab juhusliku vaba positsiooni toidu paigutamiseks.
-    Tagab et toit ei ilmu ussi ega takistuste peale.
-
-    Parameetrid:
-        uss (list): Ussi praegused ruudud
-        takistused (set): Takistuste positsioonide hulk
-
-    Tagastab: tuple (x, y) - toidu uus positsioon
-    """
-    keelatud = set(tuple(s) for s in uss) | takistused
-
-    katseid = 0
-    while katseid < 10000:
-        katseid += 1
-        x = random.randrange(0, VEERUD) * PLOKI_SUURUS
-        y = random.randrange(0, READ) * PLOKI_SUURUS + MÄNGUALA_ÜLEMINE
-        pos = (x, y)
-        if pos not in keelatud:
-            return pos
-
-    # Äärmuslik juhtum: kõik ruudud täis (mäng peaks juba lõppenud olema)
-    return (PLOKI_SUURUS, MÄNGUALA_ÜLEMINE + PLOKI_SUURUS)
-
-
-def joonista_uss(ekraan, uss):
-    """
-    Joonistab ussi ekraanile koos peaga (silmadega) ja kehaga.
-    Pea on eraldi värviga ja sellel on silmad.
-
-    Parameetrid:
-        ekraan: pygame.Surface - mänguaken
-        uss (list): Ussi segmentide positsioonide nimekiri [[x,y], ...]
-    """
-    for i, segment in enumerate(uss):
-        ruut = pygame.Rect(segment[0], segment[1], PLOKI_SUURUS, PLOKI_SUURUS)
-
-        if i == 0:
-            # ── Joonista pea ──
-            pygame.draw.rect(ekraan, USSI_PEA_VÄRV, ruut, border_radius=5)
-            pygame.draw.rect(ekraan, (20, 140, 20), ruut, 2, border_radius=5)
-
-            # Joonista silmad (positsioon sõltub liikumissuunast)
-            silm_r = 3  # Silma raadius
-            # Vasak silm
-            pygame.draw.circle(ekraan, USSI_SILM_VÄRV,
-                               (segment[0] + 5, segment[1] + 6), silm_r)
-            pygame.draw.circle(ekraan, USSI_PUPILL_VÄRV,
-                               (segment[0] + 5, segment[1] + 6), 1)
-            # Parem silm
-            pygame.draw.circle(ekraan, USSI_SILM_VÄRV,
-                               (segment[0] + 15, segment[1] + 6), silm_r)
-            pygame.draw.circle(ekraan, USSI_PUPILL_VÄRV,
-                               (segment[0] + 15, segment[1] + 6), 1)
+    # --- surm -----------------------------------------------------------------
+    def _die(self):
+        self.lives -= 1
+        head = self.snake[0]
+        self._particles(head, RED, 20)
+        if self.lives <= 0:
+            self.state = "dead"
         else:
-            # ── Joonista kehasegment ──
-            # Keha muutub järjest tumedamaks saba poole liikudes
-            heledus = max(80, 205 - i * 3)
-            keha_värv = (30, heledus, 30)
-            pygame.draw.rect(ekraan, keha_värv, ruut, border_radius=4)
-            pygame.draw.rect(ekraan, (20, heledus - 30, 20), ruut, 1, border_radius=4)
+            self.snake = self.snake[:3]
+            self._show_msg(f"Tabamust!  Elusid: {self.lives}")
 
+    # --- tulistamine ----------------------------------------------------------
+    def fire(self):
+        w = self.weapon
+        if self.ammo[w] <= 0: return
+        if w != 0: self.ammo[w] -= 1
+        hx, hy = self.snake[0]
+        dx, dy = self.direction
 
-def joonista_toit(ekraan, toit_pos, toit_liik, animatsiooni_loendur):
-    """
-    Joonistab toidu animeeritud kujul.
-    Tavaline õun on punane, boonus roheline, kuldne kollane.
-    Toit "põrkab" kerge animatsiooniga.
+        if w == 0:   # tavalõks
+            tx = (hx + dx * 3) % COLS
+            ty = (hy + dy * 3) % ROWS
+            self.traps.append({"pos": (tx, ty), "life": 300})
+            self._show_msg("Lõks asetatud!")
 
-    Parameetrid:
-        ekraan: mänguaken
-        toit_pos (tuple): Toidu (x, y) positsioon
-        toit_liik (str): "tavaline", "boonus" või "kuldne"
-        animatsiooni_loendur (int): Animatsiooni kaadri loendur
-    """
-    # Vali värv tüübi järgi
-    if toit_liik == "boonus":
-        värv = ROHELINE_ÕUN
-        ääris_värv = (20, 180, 20)
-    elif toit_liik == "kuldne":
-        värv = KULDNE_ÕUN
-        ääris_värv = (200, 160, 0)
-    else:
-        värv = PUNANE_ÕUN
-        ääris_värv = (160, 30, 30)
+        elif w == 1:  # pomm
+            ex = (hx + dx * 4) % COLS
+            ey = (hy + dy * 4) % ROWS
+            self.explosions.append({"x": ex, "y": ey, "r": 0.0, "a": 1.0})
+            survivors = []
+            killed = 0
+            for e in self.enemies:
+                if any(abs(b[0]-ex)<=2 and abs(b[1]-ey)<=2 for b in e["body"]):
+                    killed += 1
+                else:
+                    survivors.append(e)
+            self.enemies = survivors
+            self.score += killed * 50
+            self.items  = [it for it in self.items
+                           if not (abs(it["pos"][0]-ex)<=2 and abs(it["pos"][1]-ey)<=2)]
+            if killed: self._show_msg(f"Pomm! +{killed*50} punkti")
 
-    # Kerge üles-alla põrkamise animatsioon
-    nihe = int(2 * abs(pygame.math.Vector2(1, 0).rotate(animatsiooni_loendur * 4).y))
+        elif w == 2:  # välk
+            self.zap_efx.append({"x": hx, "y": hy, "life": 20})
+            for e in self.enemies:
+                e["body"] = e["body"][:max(1, len(e["body"])//2)]
+                e["len"]   = len(e["body"])
+            self.enemies = [e for e in self.enemies if e["len"] > 0]
+            self.score  += 30
+            self._show_msg("⚡ Välk!")
 
-    ruut = pygame.Rect(toit_pos[0] + 2, toit_pos[1] + 2 - nihe,
-                       PLOKI_SUURUS - 4, PLOKI_SUURUS - 4)
-    pygame.draw.ellipse(ekraan, värv, ruut)
-    pygame.draw.ellipse(ekraan, ääris_värv, ruut, 2)
+        elif w == 3:  # magnet
+            self.mag_efx.append({"x": hx, "y": hy, "life": 50})
+            for it in self.items:
+                ix, iy = it["pos"]
+                ddx, ddy = hx - ix, hy - iy
+                if abs(ddx) < 7 and abs(ddy) < 7:
+                    it["pos"] = ((ix + (1 if ddx > 0 else -1)) % COLS,
+                                 (iy + (1 if ddy > 0 else -1)) % ROWS)
+            self._show_msg("🧲 Magnet!")
 
-    # Väike "läige" efekt õuna peal
-    pygame.draw.circle(ekraan, (255, 255, 200),
-                       (toit_pos[0] + 6, toit_pos[1] + 5 - nihe), 2)
+    # --- efektid --------------------------------------------------------------
+    def _particles(self, cell, col, n):
+        cx = cell[0] * CELL + CELL // 2
+        cy = cell[1] * CELL + CELL // 2
+        for _ in range(n):
+            angle = random.random() * math.pi * 2
+            spd   = 1 + random.random() * 3
+            self.particles.append({
+                "x": cx, "y": cy,
+                "vx": math.cos(angle) * spd, "vy": math.sin(angle) * spd,
+                "col": col, "life": 20 + rnd(15),
+            })
 
+    def _show_msg(self, txt, duration=140):
+        self.msg   = txt
+        self.msg_t = duration
 
-def joonista_takistused(ekraan, takistused):
-    """
-    Joonistab kõik takistused kivide kujul.
-    Iga takistus saab kerge 3D-efekti ääristega.
+    # --- update ───────────────────────────────────────────────────────────────
+    def update(self, dt):
+        if self.state != "running": return
 
-    Parameetrid:
-        ekraan: mänguaken
-        takistused (set): Takistuste positsioonide hulk
-    """
-    for pos in takistused:
-        ruut = pygame.Rect(pos[0], pos[1], PLOKI_SUURUS, PLOKI_SUURUS)
-        pygame.draw.rect(ekraan, TAKISTUS_VÄRV, ruut, border_radius=3)
-        # Hele ülaserv (3D efekt)
-        pygame.draw.line(ekraan, (140, 120, 100),
-                         (pos[0], pos[1]), (pos[0] + PLOKI_SUURUS - 1, pos[1]), 2)
-        pygame.draw.line(ekraan, (140, 120, 100),
-                         (pos[0], pos[1]), (pos[0], pos[1] + PLOKI_SUURUS - 1), 2)
-        # Tume alakülg (3D efekt)
-        pygame.draw.line(ekraan, TAKISTUS_ÄÄRIS,
-                         (pos[0], pos[1] + PLOKI_SUURUS - 1),
-                         (pos[0] + PLOKI_SUURUS - 1, pos[1] + PLOKI_SUURUS - 1), 2)
-        pygame.draw.rect(ekraan, TAKISTUS_ÄÄRIS, ruut, 1, border_radius=3)
+        self.move_acc += dt
+        interval = self._move_interval()
+        if self.move_acc >= interval:
+            self.move_acc = 0.0
+            self._step()
+            self._move_enemies()
 
+        # perioodiline lisamine
+        self._spawn_timer = getattr(self, "_spawn_timer", 0) + dt
+        if self._spawn_timer > 6.0:
+            self._spawn_timer = 0.0
+            self._spawn_enemies(1)
 
-def joonista_infopaneel(ekraan, skoor, tase, uss_pikkus, boonus_loendur, tume_teema):
-    """
-    Joonistab ülaosa infopaneeli skoori, taseme ja muude andmetega.
-    Kui kiiruse boonus on aktiivne, kuvatakse selle aeg.
+        # efektid
+        self.explosions = [e for e in self.explosions
+                           if (e.update({'r': e['r']+1.5, 'a': e['a']-0.06}) or True) and e['a'] > 0]
+        # lihtsam update
+        new_exp = []
+        for e in self.explosions:
+            e["r"] += 1.5; e["a"] -= 0.06
+            if e["a"] > 0: new_exp.append(e)
+        self.explosions = new_exp
 
-    Parameetrid:
-        ekraan: mänguaken
-        skoor (int): Praegune punktisumma
-        tase (int): Praegune tase
-        uss_pikkus (int): Ussi praegune pikkus
-        boonus_loendur (int): Mitu kaadrit on kiiruse boonus veel aktiivne
-        tume_teema (bool): Kas tume teema on sisse lülitatud
-    """
-    # Paneeli taustavärv sõltub teemast
-    paneeli_värv = TUME_PANEELI_TAUST if tume_teema else HELE_PANEELI_TAUST
-    teksti_värv = TUME_TEKST if tume_teema else HELE_TEKST
+        self.zap_efx = [z for z in self.zap_efx if (z.__setitem__("life", z["life"]-1) or True) and z["life"] > 0]
+        self.mag_efx = [m for m in self.mag_efx if (m.__setitem__("life", m["life"]-1) or True) and m["life"] > 0]
+        self.traps   = [t for t in self.traps   if (t.__setitem__("life", t["life"]-1) or True) and t["life"] > 0]
 
-    pygame.draw.rect(ekraan, paneeli_värv,
-                     (0, 0, AKNA_LAIUS, MÄNGUALA_ÜLEMINE))
+        for p in self.particles:
+            p["x"] += p["vx"]; p["y"] += p["vy"]
+            p["vy"] += 0.1; p["life"] -= 1
+        self.particles = [p for p in self.particles if p["life"] > 0]
 
-    # Skoor, tase, pikkus
-    skoor_tekst = PEAFONT.render(f"SKOOR: {skoor}", True, teksti_värv)
-    tase_tekst = PEAFONT.render(f"TASE: {tase}", True, teksti_värv)
-    pikkus_tekst = VÄIKEFONT.render(f"Pikkus: {uss_pikkus}", True, teksti_värv)
+        if self.msg_t > 0: self.msg_t -= 1
 
-    ekraan.blit(skoor_tekst, (10, 18))
-    ekraan.blit(tase_tekst, (AKNA_LAIUS // 2 - 50, 18))
-    ekraan.blit(pikkus_tekst, (AKNA_LAIUS - 130, 20))
+    # --- joonistamine ─────────────────────────────────────────────────────────
+    def draw(self):
+        sc = self.screen
+        sc.fill(BG)
 
-    # Kiiruse boonus indikaator
-    if boonus_loendur > 0:
-        boonus_tekst = VÄIKEFONT.render(
-            f"⚡ KIIRUS: {boonus_loendur // 30 + 1}s", True, KULDNE_ÕUN
-        )
-        ekraan.blit(boonus_tekst, (AKNA_LAIUS - 160, 38))
+        # võre
+        grid_surf = pygame.Surface((W, H), pygame.SRCALPHA)
+        for x in range(COLS):
+            pygame.draw.line(grid_surf, (255,255,255,6), (x*CELL,0), (x*CELL,H))
+        for y in range(ROWS):
+            pygame.draw.line(grid_surf, (255,255,255,6), (0,y*CELL), (W,y*CELL))
+        sc.blit(grid_surf, (0, 0))
 
-    # Eraldajoon paneeli ja mänguvälja vahel
-    pygame.draw.line(ekraan, teksti_värv,
-                     (0, MÄNGUALA_ÜLEMINE - 1), (AKNA_LAIUS, MÄNGUALA_ÜLEMINE - 1), 2)
+        t = pygame.time.get_ticks() / 1000.0
 
+        # esemed
+        for it in self.items:
+            cx = it["pos"][0]*CELL + CELL//2
+            cy = it["pos"][1]*CELL + CELL//2
+            pulse = math.sin(t * 3 + it["phase"]) * 2
+            r = int(5 + pulse * 0.4)
+            if it["type"] == "food":
+                glow(sc, cx, cy, 14, FOOD_COL, 50)
+                pygame.draw.circle(sc, FOOD_COL, (cx, cy), r)
+                pygame.draw.circle(sc, FOOD_HI,  (cx-1, cy-1), max(1, r-2))
+            elif it["type"] == "energy":
+                glow(sc, cx, cy, 14, ENERGY_C, 70)
+                pygame.draw.circle(sc, ENERGY_C, (cx, cy), r)
+            elif it["type"] == "weapon":
+                glow(sc, cx, cy, 14, WEAPON_C, 60)
+                rect = pygame.Rect(it["pos"][0]*CELL+3, it["pos"][1]*CELL+3, CELL-6, CELL-6)
+                draw_rounded_rect(sc, rect, WEAPON_C, 4)
+                lbl = F_TINY.render("W", True, WHITE)
+                sc.blit(lbl, lbl.get_rect(center=(cx, cy)))
 
-def joonista_ruudustik(ekraan, tume_teema):
-    """
-    Joonistab mänguvälja tausta ruudustikuga.
+        # trapid
+        for tr in self.traps:
+            cx = tr["pos"][0]*CELL + CELL//2
+            cy = tr["pos"][1]*CELL + CELL//2
+            s = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
+            pygame.draw.circle(s, (*TRAP_C, 120), (CELL//2, CELL//2), CELL//2-2)
+            pygame.draw.circle(s, (*TRAP_C, 220), (CELL//2, CELL//2), CELL//2-2, 1)
+            sc.blit(s, (tr["pos"][0]*CELL, tr["pos"][1]*CELL))
 
-    Parameetrid:
-        ekraan: mänguaken
-        tume_teema (bool): Kas tume teema on aktiivne
-    """
-    taust_värv = TUME_TAUST if tume_teema else HELE_TAUST
-    ruudustiku_värv = TUME_RUUDUSTIK if tume_teema else HELE_RUUDUSTIK
+        # vaenlased
+        for e in self.enemies:
+            for i, (bx, by) in enumerate(e["body"]):
+                alpha = int(255 * (1 - i / len(e["body"]) * 0.6))
+                s = pygame.Surface((CELL-4, CELL-4), pygame.SRCALPHA)
+                s.fill((*e["color"], alpha))
+                sc.blit(s, (bx*CELL+2, by*CELL+2))
+            if e["body"]:
+                hx2, hy2 = e["body"][0]
+                for ox in (5, 12):
+                    pygame.draw.circle(sc, WHITE, (hx2*CELL+ox, hy2*CELL+6), 2)
 
-    # Täida mänguväli taustavärviga
-    ekraan.fill(taust_värv, (0, MÄNGUALA_ÜLEMINE, AKNA_LAIUS,
-                             AKNA_KORGUS - MÄNGUALA_ÜLEMINE))
+        # uss
+        for i, (sx, sy) in enumerate(self.snake):
+            if i == 0:
+                glow(sc, sx*CELL+CELL//2, sy*CELL+CELL//2, 18, HEAD_COL, 80)
+                pygame.draw.rect(sc, HEAD_COL, (sx*CELL+1, sy*CELL+1, CELL-2, CELL-2), border_radius=4)
+                dx2, dy2 = self.direction
+                ex2 = sx*CELL + CELL//2 + dx2*5
+                ey2 = sy*CELL + CELL//2 + dy2*5
+                for ox2, oy2 in [( dy2*3, -dx2*3), (-dy2*3, dx2*3)]:
+                    pygame.draw.circle(sc, WHITE, (ex2+ox2, ey2+oy2), 2)
+            else:
+                shade = max(30, 180 - i * 4)
+                col   = (30, shade, 60)
+                pygame.draw.rect(sc, col, (sx*CELL+2, sy*CELL+2, CELL-4, CELL-4), border_radius=3)
 
-    # Joonista vertikaalsed jooned
-    for x in range(0, AKNA_LAIUS, PLOKI_SUURUS):
-        pygame.draw.line(ekraan, ruudustiku_värv,
-                         (x, MÄNGUALA_ÜLEMINE), (x, AKNA_KORGUS))
+        # plahvatused
+        for e in self.explosions:
+            s = pygame.Surface((W, H), pygame.SRCALPHA)
+            a = int(e["a"] * 200)
+            pygame.draw.circle(s, (239,68,68,a),   (int(e["x"]*CELL+CELL//2), int(e["y"]*CELL+CELL//2)), int(e["r"]*CELL//3))
+            pygame.draw.circle(s, (251,191,36,a//2),(int(e["x"]*CELL+CELL//2), int(e["y"]*CELL+CELL//2)), int(e["r"]*CELL//5))
+            sc.blit(s, (0,0))
 
-    # Joonista horisontaalsed jooned
-    for y in range(MÄNGUALA_ÜLEMINE, AKNA_KORGUS, PLOKI_SUURUS):
-        pygame.draw.line(ekraan, ruudustiku_värv, (0, y), (AKNA_LAIUS, y))
+        # välgud
+        for z in self.zap_efx:
+            a = int(z["life"] / 20 * 255)
+            s = pygame.Surface((W, H), pygame.SRCALPHA)
+            pygame.draw.line(s, (*YELLOW, a), (z["x"]*CELL+CELL//2, z["y"]*CELL+CELL//2), (W, z["y"]*CELL+CELL//2), 3)
+            pygame.draw.line(s, (*YELLOW, a), (W, z["y"]*CELL+CELL//2), (W, 0), 3)
+            sc.blit(s, (0,0))
 
+        # magneti efekt
+        for m in self.mag_efx:
+            a  = int(m["life"] / 50 * 120)
+            r2 = int((50 - m["life"]) * CELL // 8)
+            if r2 > 0:
+                s = pygame.Surface((W, H), pygame.SRCALPHA)
+                pygame.draw.circle(s, (*PURPLE, a), (m["x"]*CELL+CELL//2, m["y"]*CELL+CELL//2), r2, 1)
+                sc.blit(s, (0,0))
 
-def kuva_mang_labi_ekraan(ekraan, skoor, tase, tume_teema):
-    """
-    Kuvab mäng läbi ekraani koos punktisumma ja tasemega.
-    Küsib mängijalt nime rekordite jaoks.
-    Ootab klahvivajutust uuesti mängimiseks või väljumiseks.
+        # osakesed
+        for p in self.particles:
+            a = int(p["life"] / 35 * 220)
+            pygame.draw.circle(sc, (*p["col"], min(255,a)), (int(p["x"]), int(p["y"])), 2)
 
-    Parameetrid:
-        ekraan: mänguaken
-        skoor (int): Lõplik punktisumma
-        tase (int): Tase kus mäng lõppes
-        tume_teema (bool): Praegune teema
+        # ── HUD ──────────────────────────────────────────────────────────────
+        hud_y = H
+        pygame.draw.rect(sc, UI_BG, (0, hud_y, W, INFO_H))
+        pygame.draw.line(sc, (40, 60, 90), (0, hud_y), (W, hud_y), 1)
 
-    Tagastab:
-        str: "uuesti" kui mängitakse uuesti, "välja" kui väljutakse
-    """
-    taust_värv = TUME_TAUST if tume_teema else HELE_TAUST
-    teksti_värv = TUME_TEKST if tume_teema else (50, 50, 50)
+        # statistika
+        stats = [
+            ("SKOOR",   str(self.score)),
+            ("PIKKUS",  str(len(self.snake))),
+            ("KIIRUS",  f"{self.speed:.1f}x"),
+            ("ENERGIA", f"{self.energy}"),
+            ("ELUSID",  str(self.lives)),
+        ]
+        col_w = W // len(stats)
+        for i, (lbl, val) in enumerate(stats):
+            cx2 = i * col_w + col_w // 2
+            l   = F_TINY.render(lbl, True, TEXT_DIM)
+            v   = F_MED.render(val, True, TEXT_C)
+            sc.blit(l, l.get_rect(centerx=cx2, y=hud_y+6))
+            sc.blit(v, v.get_rect(centerx=cx2, y=hud_y+22))
 
-    ekraan.fill(taust_värv)
+        # relvad
+        wep_y = hud_y + 48
+        wx    = 10
+        for i, wp in enumerate(WEAPONS):
+            active = self.weapon == i
+            a_val  = self.ammo[i]
+            out    = (a_val <= 0 and i != 0)
+            bg     = (30, 50, 80) if active else UI_BG
+            border = wp["color"] if active else (50, 70, 100)
+            rect   = pygame.Rect(wx, wep_y, 140, 32)
+            draw_rounded_rect(sc, rect, bg, 6, 1, border)
+            icon_col = wp["color"] if not out else TEXT_DIM
+            nm  = F_SMALL.render(f"[{wp['key']}] {wp['name']}", True, icon_col)
+            amm = F_TINY.render("∞" if i==0 else str(a_val), True, TEXT_DIM if out else TEXT_C)
+            sc.blit(nm,  nm.get_rect(x=wx+8,   centery=wep_y+16))
+            sc.blit(amm, amm.get_rect(right=wx+132, centery=wep_y+16))
+            wx += 150
 
-    # ── Pealkiri ──
-    pealkiri = SUUREFONT.render("MÄNG LÄBI!", True, (220, 50, 50))
-    ekraan.blit(pealkiri, (AKNA_LAIUS // 2 - pealkiri.get_width() // 2, 80))
+        # sõnum
+        if self.msg_t > 0:
+            alpha = min(255, self.msg_t * 6)
+            s     = F_MED.render(self.msg, True, YELLOW)
+            sa    = pygame.Surface(s.get_size(), pygame.SRCALPHA)
+            sa.blit(s, (0,0))
+            sa.set_alpha(alpha)
+            sc.blit(sa, sa.get_rect(centerx=W//2, y=hud_y-28))
 
-    # ── Tulemus ──
-    skoor_tekst = PEAFONT.render(f"Sinu skoor: {skoor}", True, teksti_värv)
-    tase_tekst = PEAFONT.render(f"Saavutatud tase: {tase}", True, teksti_värv)
-    ekraan.blit(skoor_tekst, (AKNA_LAIUS // 2 - skoor_tekst.get_width() // 2, 170))
-    ekraan.blit(tase_tekst, (AKNA_LAIUS // 2 - tase_tekst.get_width() // 2, 205))
+        # energiariba
+        if self.energy > 0:
+            bar_w = int((W - 20) * self.energy / 100)
+            pygame.draw.rect(sc, (40,60,80),  (10, hud_y-12, W-20, 6), border_radius=3)
+            pygame.draw.rect(sc, ENERGY_C,    (10, hud_y-12, bar_w, 6), border_radius=3)
 
-    # ── Rekordite tabel ──
-    rekordid = laadi_rekordid()
-    rekord_pealkiri = PEAFONT.render("🏆 REKORDITE TABEL:", True, KULDNE_ÕUN)
-    ekraan.blit(rekord_pealkiri,
-                (AKNA_LAIUS // 2 - rekord_pealkiri.get_width() // 2, 260))
+        # overlay ekraanid
+        if self.state == "idle":
+            self._draw_overlay("SNAKE KOMBAINEERITUD",
+                ["Nooleklahvid / WASD – liikumine",
+                 "SPACE – kiirenda (kulutab energiat)",
+                 "F – tulista valitud relv   |   1-4 – vali relv",
+                 "",
+                 "ENTER – alusta mängu"])
 
-    for i, r in enumerate(rekordid):
-        medal = ["🥇", "🥈", "🥉", "4.", "5."][i] if i < 5 else f"{i + 1}."
-        rida = REKORDIFONT.render(
-            f"{medal} {r['nimi'][:12]:<12} {r['skoor']:>5} pts  (Tase {r['tase']})",
-            True, teksti_värv
-        )
-        ekraan.blit(rida, (AKNA_LAIUS // 2 - rida.get_width() // 2, 295 + i * 28))
-
-    # ── Juhised ──
-    juhis1 = VÄIKEFONT.render("Vajuta ENTER - mängi uuesti", True, teksti_värv)
-    juhis2 = VÄIKEFONT.render("Vajuta ESC - välju", True, teksti_värv)
-    ekraan.blit(juhis1, (AKNA_LAIUS // 2 - juhis1.get_width() // 2, 510))
-    ekraan.blit(juhis2, (AKNA_LAIUS // 2 - juhis2.get_width() // 2, 538))
-
-    pygame.display.flip()
-
-    # Oota klahvivajutust
-    while True:
-        for sündmus in pygame.event.get():
-            if sündmus.type == pygame.QUIT:
-                return "välja"
-            if sündmus.type == pygame.KEYDOWN:
-                if sündmus.key == pygame.K_RETURN:
-                    return "uuesti"
-                if sündmus.key == pygame.K_ESCAPE:
-                    return "välja"
-
-
-def kuva_aloekraan(ekraan, tume_teema):
-    """
-    Kuvab mängu algusekraani koos juhistega.
-
-    Parameetrid:
-        ekraan: mänguaken
-        tume_teema (bool): Praegune teema
-
-    Tagastab:
-        bool: True kui mäng alustatakse, False kui väljutakse
-    """
-    taust_värv = TUME_TAUST if tume_teema else HELE_TAUST
-    teksti_värv = TUME_TEKST if tume_teema else (30, 80, 30)
-
-    ekraan.fill(taust_värv)
-
-    # ── Pealkiri ──
-    tiitel = SUUREFONT.render("🐍 SINU-MOOD USSIMÄNG", True, (34, 180, 34))
-    ekraan.blit(tiitel, (AKNA_LAIUS // 2 - tiitel.get_width() // 2, 60))
-
-    alatiitel = PEAFONT.render("PyGame Snake - Täiustatud versioon", True, teksti_värv)
-    ekraan.blit(alatiitel, (AKNA_LAIUS // 2 - alatiitel.get_width() // 2, 115))
-
-    # ── Juhised ──
-    juhised = [
-        ("JUHISED:", KULDNE_ÕUN),
-        ("  Nooleklahvid / WASD - liikumine", teksti_värv),
-        ("  P - paus / jätka", teksti_värv),
-        ("  T - vaheta teema (hele/tume)", teksti_värv),
-        ("  ESC - välju mängust", teksti_värv),
-        ("", teksti_värv),
-        ("TOIT:", KULDNE_ÕUN),
-        ("  🔴 Punane õun = +1 punkt", (220, 80, 80)),
-        ("  🟢 Roheline õun = +2 punkti + kiirusboonus", (80, 200, 80)),
-        ("  🟡 Kuldne õun = +5 punkti (haruldane!)", KULDNE_ÕUN),
-        ("", teksti_värv),
-        ("  Koguda punkte → tase tõuseb → kiirem + rohkem takistusi!", teksti_värv),
-    ]
-
-    y_pos = 175
-    for tekst, värv in juhised:
-        if tekst:
-            rida = VÄIKEFONT.render(tekst, True, värv)
-            ekraan.blit(rida, (AKNA_LAIUS // 2 - 200, y_pos))
-        y_pos += 26
-
-    # ── Alusta nupp ──
-    alusta = PEAFONT.render("Vajuta ENTER - alusta mängu", True, (34, 180, 34))
-    ekraan.blit(alusta, (AKNA_LAIUS // 2 - alusta.get_width() // 2, 530))
-
-    pygame.display.flip()
-
-    while True:
-        for sündmus in pygame.event.get():
-            if sündmus.type == pygame.QUIT:
-                return False
-            if sündmus.type == pygame.KEYDOWN:
-                if sündmus.key == pygame.K_RETURN:
-                    return True
-                if sündmus.key == pygame.K_ESCAPE:
-                    return False
-
-
-def küsi_mängija_nimi(ekraan, tume_teema):
-    """
-    Kuvab sisestusvälja mängija nime küsimiseks enne rekordite salvestamist.
-
-    Parameetrid:
-        ekraan: mänguaken
-        tume_teema (bool): Praegune teema
-
-    Tagastab:
-        str: Mängija sisestatud nimi (maksimaalselt 12 tähemärki)
-    """
-    taust_värv = TUME_TAUST if tume_teema else HELE_TAUST
-    teksti_värv = TUME_TEKST if tume_teema else (30, 80, 30)
-
-    nimi = ""
-
-    while True:
-        ekraan.fill(taust_värv)
-
-        küsimus = PEAFONT.render("Sisesta oma nimi rekordite jaoks:", True, teksti_värv)
-        ekraan.blit(küsimus, (AKNA_LAIUS // 2 - küsimus.get_width() // 2, 260))
-
-        # Sisestusväli
-        väli_ruut = pygame.Rect(AKNA_LAIUS // 2 - 150, 310, 300, 45)
-        pygame.draw.rect(ekraan, (200, 230, 200) if not tume_teema else (30, 60, 30),
-                         väli_ruut, border_radius=5)
-        pygame.draw.rect(ekraan, (34, 180, 34), väli_ruut, 2, border_radius=5)
-
-        nimi_tekst = PEAFONT.render(nimi + "|", True, (30, 30, 30) if not tume_teema else (200, 255, 200))
-        ekraan.blit(nimi_tekst, (väli_ruut.x + 10, väli_ruut.y + 10))
-
-        juhis = VÄIKEFONT.render("ENTER - kinnita  |  ESC - jäta vahele", True, teksti_värv)
-        ekraan.blit(juhis, (AKNA_LAIUS // 2 - juhis.get_width() // 2, 370))
+        elif self.state == "dead":
+            self._draw_overlay("MÄNG LÄBI",
+                [f"Lõplik skoor:  {self.score}",
+                 f"Pikkus:  {len(self.snake)}",
+                 "",
+                 "ENTER – mängi uuesti"])
 
         pygame.display.flip()
 
-        for sündmus in pygame.event.get():
-            if sündmus.type == pygame.QUIT:
-                return "Anonüümne"
-            if sündmus.type == pygame.KEYDOWN:
-                if sündmus.key == pygame.K_RETURN:
-                    return nimi if nimi.strip() else "Anonüümne"
-                elif sündmus.key == pygame.K_ESCAPE:
-                    return "Anonüümne"
-                elif sündmus.key == pygame.K_BACKSPACE:
-                    nimi = nimi[:-1]  # Kustuta viimane täht
-                elif len(nimi) < 12:  # Maksimaalselt 12 tähemärki
-                    nimi += sündmus.unicode
+    def _draw_overlay(self, title, lines):
+        ov = pygame.Surface((W, H), pygame.SRCALPHA)
+        ov.fill((5, 12, 25, 190))
+        self.screen.blit(ov, (0, 0))
+
+        t  = F_LARGE.render(title, True, HEAD_COL)
+        self.screen.blit(t, t.get_rect(centerx=W//2, centery=H//2 - 60))
+
+        for i, ln in enumerate(lines):
+            if not ln: continue
+            c  = TEXT_C if i < len(lines)-1 else ENERGY_C
+            s  = F_MED.render(ln, True, c)
+            self.screen.blit(s, s.get_rect(centerx=W//2, centery=H//2 - 10 + i*26))
+
+    # --- peaahela ─────────────────────────────────────────────────────────────
+    def run(self):
+        self.draw()   # idle ekraan kohe
+        while True:
+            dt = self.clock.tick(FPS) / 1000.0
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+
+                if event.type == pygame.KEYDOWN:
+                    k = event.key
+
+                    if k == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
+
+                    if k == pygame.K_RETURN:
+                        if self.state != "running":
+                            self.reset()
+
+                    if self.state == "running":
+                        if k in (pygame.K_UP,    pygame.K_w) and self.direction != (0,1):
+                            self.next_dir = (0,-1)
+                        elif k in (pygame.K_DOWN, pygame.K_s) and self.direction != (0,-1):
+                            self.next_dir = (0,1)
+                        elif k in (pygame.K_LEFT, pygame.K_a) and self.direction != (1,0):
+                            self.next_dir = (-1,0)
+                        elif k in (pygame.K_RIGHT,pygame.K_d) and self.direction != (-1,0):
+                            self.next_dir = (1,0)
+                        elif k == pygame.K_SPACE:
+                            if self.energy >= 10:
+                                self.energy  -= 10
+                                self.boost_t  = 40
+                                self.speed    = min(5.0, self.speed + 0.5)
+                        elif k == pygame.K_f:
+                            self.fire()
+                        elif k == pygame.K_1: self.weapon = 0
+                        elif k == pygame.K_2: self.weapon = 1 if self.ammo[1] > 0 else self.weapon
+                        elif k == pygame.K_3: self.weapon = 2 if self.ammo[2] > 0 else self.weapon
+                        elif k == pygame.K_4: self.weapon = 3 if self.ammo[3] > 0 else self.weapon
+
+            self.update(dt)
+            self.draw()
 
 
-def põhimäng():
-    """
-    Põhimängu tsükkel.
-    Käivitab mängu, haldab kõiki mänguelemente:
-    - Ussi liikumine ja kasvamine
-    - Toidu söömine
-    - Tasemete tõstmine
-    - Takistuste lisamine
-    - Kiiruse boonus
-    - Teema vahetus
-    - Kokkupõrke tuvastamine
-
-    Tagastab: None
-    """
-    # ── Ekraani initsialiseerimine ──
-    ekraan = pygame.display.set_mode((AKNA_LAIUS, AKNA_KORGUS))
-    pygame.display.set_caption("🐍 Sinu-Mood Ussimäng - PyGame")
-    kell = pygame.time.Clock()
-
-    # ── Teema olek ──
-    tume_teema = False  # Alustame hele teemaga
-
-    # ── Aloekraani kuvamine ──
-    if not kuva_aloekraan(ekraan, tume_teema):
-        pygame.quit()
-        sys.exit()
-
-    # ── Peamine mängu tsükkel (uuesti mängimine) ──
-    while True:
-        # ─── MÄNGU SEISUNDI LÄHTESTAMINE ───────────────────────────────────────
-
-        # Uss algab ekraani keskel, 3 segmendiga
-        algx = (VEERUD // 2) * PLOKI_SUURUS
-        algy = (READ // 2) * PLOKI_SUURUS + MÄNGUALA_ÜLEMINE
-        uss = [
-            [algx, algy],
-            [algx - PLOKI_SUURUS, algy],
-            [algx - PLOKI_SUURUS * 2, algy]
-        ]
-
-        suund = [PLOKI_SUURUS, 0]  # Algsuund: paremale
-
-        skoor = 0  # Algne punktisumma
-        tase = 1  # Algne tase
-        mäng_käib = True  # Mängu olek
-        paus = False  # Pausirežiim
-        animatsiooni_loendur = 0  # Animatsiooni kaader
-
-        # Kiiruse boonus seaded
-        boonus_aktiivne = False  # Kas boonus on praegu aktiivne
-        boonus_loendur = 0  # Mitu kaadrit boonus kestab
-
-        # Takistused (1. tasemel pole takistusi)
-        takistused = set()
-
-        # Genereeri esimene toit
-        toit_pos = juhuslik_toit_positsioon(uss, takistused)
-        toit_liik = "tavaline"  # Esimene toit on alati tavaline
-
-        # Kiiruse boonus toidu positsioon (ilmub vahepeal)
-        boonus_toit_pos = None  # None = pole ekraanil
-        boonus_toit_loendur = 0  # Mitu kaadrit on boonus toit olnud ekraanil
-        BOONUS_TOIDU_KESTUS = 200  # Mitu kaadrit boonus toit ekraanil on
-        BOONUS_TOIDU_ILMUMINE = 150  # Iga mitu kaadrit võib ilmuda
-
-        praegune_kiirus = ALGKIIRUS  # Praegune mängu kiirus
-
-        # ─── MÄNGU PÕHITSÜKKEL ─────────────────────────────────────────────────
-        while mäng_käib:
-
-            # ── Sündmuste töötlemine ──
-            for sündmus in pygame.event.get():
-                if sündmus.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-
-                if sündmus.type == pygame.KEYDOWN:
-                    # Liikumisklahvid (nooleklahvid ja WASD)
-                    if sündmus.key in (pygame.K_UP, pygame.K_w):
-                        if suund[1] != PLOKI_SUURUS:  # Ei saa tagurpidi minna
-                            suund = [0, -PLOKI_SUURUS]
-                    elif sündmus.key in (pygame.K_DOWN, pygame.K_s):
-                        if suund[1] != -PLOKI_SUURUS:
-                            suund = [0, PLOKI_SUURUS]
-                    elif sündmus.key in (pygame.K_LEFT, pygame.K_a):
-                        if suund[0] != PLOKI_SUURUS:
-                            suund = [-PLOKI_SUURUS, 0]
-                    elif sündmus.key in (pygame.K_RIGHT, pygame.K_d):
-                        if suund[0] != -PLOKI_SUURUS:
-                            suund = [PLOKI_SUURUS, 0]
-
-                    # Paus (P-klahv)
-                    elif sündmus.key == pygame.K_p:
-                        paus = not paus
-
-                    # ── TÄIUSTUS 5: Teema vahetus (T-klahv) ──
-                    elif sündmus.key == pygame.K_t:
-                        tume_teema = not tume_teema
-
-                    # Välju mängust
-                    elif sündmus.key == pygame.K_ESCAPE:
-                        mäng_käib = False
-
-            # Kui paus on sisse lülitatud, ära uuenda mängu
-            if paus:
-                paus_tekst = SUUREFONT.render("⏸ PAUS", True, KULDNE_ÕUN)
-                juhis_tekst = VÄIKEFONT.render("Vajuta P - jätka", True, KULDNE_ÕUN)
-                ekraan.blit(paus_tekst,
-                            (AKNA_LAIUS // 2 - paus_tekst.get_width() // 2,
-                             AKNA_KORGUS // 2 - 30))
-                ekraan.blit(juhis_tekst,
-                            (AKNA_LAIUS // 2 - juhis_tekst.get_width() // 2,
-                             AKNA_KORGUS // 2 + 30))
-                pygame.display.flip()
-                kell.tick(10)
-                continue
-
-            # ── Ussi liikumine ──
-            uus_pea = [uss[0][0] + suund[0], uss[0][1] + suund[1]]
-
-            # ── Seina läbimine (uss ilmub teisest servast) ──
-            if uus_pea[0] < 0:
-                uus_pea[0] = (VEERUD - 1) * PLOKI_SUURUS
-            elif uus_pea[0] >= AKNA_LAIUS:
-                uus_pea[0] = 0
-            if uus_pea[1] < MÄNGUALA_ÜLEMINE:
-                uus_pea[1] = (READ - 1) * PLOKI_SUURUS + MÄNGUALA_ÜLEMINE
-            elif uus_pea[1] >= AKNA_KORGUS:
-                uus_pea[1] = MÄNGUALA_ÜLEMINE
-
-            uss.insert(0, uus_pea)  # Lisa uus pea ussi algusse
-
-            # ── Kokkupõrke tuvastamine ──
-
-            # Kas uss põrkas iseendasse?
-            if uus_pea in uss[1:]:
-                mäng_käib = False
-                break
-
-            # Kas uss põrkas takistusesse?
-            if tuple(uus_pea) in takistused:
-                mäng_käib = False
-                break
-
-            # ── TÄIUSTUS 1: Tasemesüsteem ──
-            # Kontrolli kas tase tõuseb
-            uus_tase = (skoor // PUNKTID_TASEME_KOHTA) + 1
-            if uus_tase > tase:
-                tase = uus_tase
-                # Suurenda kiirust tasemega (kuid mitte üle maksimumi)
-                praegune_kiirus = min(ALGKIIRUS + tase * 2, MAKSIMAALNE_KIIRUS)
-                # ── TÄIUSTUS 2: Lisa uued takistused uue tasemega ──
-                takistused = genereeri_takistused(
-                    tase - 1, [tuple(s) for s in uss], tuple(toit_pos)
-                )
-
-            # ── Toidu söömine ──
-            sõi = False
-
-            # Kontrolli kas uss sõi tavalise toidu
-            if uus_pea == list(toit_pos):
-                sõi = True
-                if toit_liik == "tavaline":
-                    skoor += 1  # +1 punkt tavaline
-                elif toit_liik == "kuldne":
-                    skoor += 5  # +5 punkti kuldne
-                elif toit_liik == "boonus":
-                    skoor += 2  # +2 punkti boonus
-                    # ── TÄIUSTUS 3: Kiiruse boonus aktiveerimine ──
-                    boonus_aktiivne = True
-                    boonus_loendur = BOONUS_KESTUS
-
-                # Genereeri uus toit
-                # 10% võimalus kuldse õuna saamiseks
-                juhuslik = random.random()
-                if juhuslik < 0.10:
-                    toit_liik = "kuldne"
-                else:
-                    toit_liik = "tavaline"
-                toit_pos = juhuslik_toit_positsioon(uss, takistused)
-                boonus_toit_pos = None  # Peitke boonus toit pärast söömist
-                boonus_toit_loendur = 0
-
-            # Kontrolli kas uss sõi boonus toidu
-            if boonus_toit_pos and uus_pea == list(boonus_toit_pos):
-                sõi = True
-                skoor += 2
-                boonus_aktiivne = True
-                boonus_loendur = BOONUS_KESTUS
-                boonus_toit_pos = None
-                boonus_toit_loendur = 0
-
-            if not sõi:
-                uss.pop()  # Eemalda saba kui ei söönud (uss ei kasva)
-
-            # ── Kiiruse boonus haldamine ──
-            if boonus_aktiivne:
-                boonus_loendur -= 1
-                if boonus_loendur <= 0:
-                    boonus_aktiivne = False  # Boonus lõppes
-
-            # ── Boonus toidu haldamine ──
-            # Kas on aeg kuvada boonus toit?
-            if boonus_toit_pos is None:
-                boonus_toit_loendur += 1
-                if boonus_toit_loendur >= BOONUS_TOIDU_ILMUMINE:
-                    # Ilmuta roheline boonus toit
-                    boonus_toit_pos = juhuslik_toit_positsioon(uss, takistused)
-                    boonus_toit_loendur = 0
-            else:
-                # Boonus toit on ekraanil, loenda kestust
-                boonus_toit_loendur += 1
-                if boonus_toit_loendur >= BOONUS_TOIDU_KESTUS:
-                    # Boonus toit kadus (ei söönud)
-                    boonus_toit_pos = None
-                    boonus_toit_loendur = 0
-
-            animatsiooni_loendur += 1  # Suurenda animatsiooniloendut
-
-            # ── Joonistamine ──
-            joonista_ruudustik(ekraan, tume_teema)
-            joonista_takistused(ekraan, takistused)
-            joonista_toit(ekraan, toit_pos, toit_liik, animatsiooni_loendur)
-
-            # Joonista boonus toit kui ekraanil
-            if boonus_toit_pos:
-                joonista_toit(ekraan, boonus_toit_pos, "boonus", animatsiooni_loendur)
-
-            joonista_uss(ekraan, uss)
-            joonista_infopaneel(ekraan, skoor, tase, len(uss),
-                                boonus_loendur if boonus_aktiivne else 0, tume_teema)
-
-            pygame.display.flip()
-
-            # Kiirus sõltub kiiruse boonus olekust
-            aktiivselt_kiirus = BOONUS_KIIRUS if boonus_aktiivne else praegune_kiirus
-            kell.tick(aktiivselt_kiirus)
-
-        # ── Mäng lõppes - küsi nimi ja salvesta rekord ──
-        mängija_nimi = küsi_mängija_nimi(ekraan, tume_teema)
-        salvesta_rekord(mängija_nimi, skoor, tase)
-
-        # Kuva mäng läbi ekraan
-        tulemus = kuva_mang_labi_ekraan(ekraan, skoor, tase, tume_teema)
-
-        if tulemus == "välja":
-            break  # Välju mängu põhitsüklist
-        # Muul juhul: "uuesti" → tsükkel jätkub ja mäng alustatakse uuesti
-
-
-def main():
-    """
-    Programmi sisendpunkt.
-    Käivitab pygame ja põhimängu, lõpetab korrektselt.
-    """
-    try:
-        põhimäng()
-    except KeyboardInterrupt:
-        print("\nMäng katkestati Ctrl+C-ga.")
-    finally:
-        pygame.quit()
-        sys.exit()
-
-
-# ── Programmi käivitamine ──────────────────────────────────────────────────────
+# ── käivitamine ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    main()
+    Game().run()
+
+
+
