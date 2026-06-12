@@ -386,7 +386,7 @@ def show_overlay(surf, fb, fs, title, score):
 def run_game():
     pygame.init()
     screen = pygame.display.set_mode((WIN_W, WIN_H))
-    pygame.display.set_caption("Pacman – Kombineeritud Versioon")
+    pygame.display.set_caption("Pac-man – lõpplik Versioon")
     clock  = pygame.time.Clock()
     font_b = pygame.font.SysFont("consolas", 28, bold=True)
     font_s = pygame.font.SysFont("consolas", 16)
@@ -516,3 +516,4 @@ def run_game():
 
 if __name__ == "__main__":
     run_game()
+   
